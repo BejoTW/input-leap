@@ -1,0 +1,77 @@
+name: win-build
+on:
+  workflow_dispatch: {}   # 手動觸發
+  push:
+    branches: [ main ]    # 也可在 push 時自動跑
+
+jobs:
+  build:
+    runs-on: windows-latest
+    env:
+      BUILD_TYPE: Release
+
+    steps:
+      - name: Checkout (with submodules)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Setup MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          toolset: 14.3
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.7.*'
+          host: 'windows'
+          arch: 'win64_msvc2022_64'
+          cache: true
+
+      - name: Get CMake + Ninja
+        uses: lukka/get-cmake@v3
+
+      - name: Configure
+        shell: pwsh
+        run: >
+          cmake -S . -B build -G "Ninja"
+          -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }}
+          -DCMAKE_PREFIX_PATH="$env:Qt6_DIR"
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Find built EXE
+        id: findexe
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem -Recurse -Path build -Filter "*.exe" |
+                 Where-Object { $_.FullName -match "input-leap\.exe$" -or $_.Name -match "input" } |
+                 Select-Object -First 1
+          if (-not $exe) { throw "No EXE found under build/" }
+          echo "exe=$($exe.FullName)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          Write-Host "EXE => $($exe.FullName)"
+
+      - name: Deploy Qt runtime (windeployqt)
+        shell: pwsh
+        run: |
+          $exe = "${{ steps.findexe.outputs.exe }}"
+          & "$env:IQTA_TOOLS\bin\windeployqt.exe" "$exe" --release --compiler-runtime
+          # 把相關 DLL/plug-ins 都會佈到 exe 同層或 plugins/ 等
+
+      - name: Collect artifact
+        shell: pwsh
+        run: |
+          $exeDir = Split-Path "${{ steps.findexe.outputs.exe }}"
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Copy-Item -Recurse -Force "$exeDir\*" dist\
+          # 可選：加入你自己的資源/設定檔
+          # Copy-Item -Recurse -Force "configs\*" dist\configs\
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: input-leap-windows
+          path: dist\
