@@ -1,8 +1,8 @@
 name: win-build
 on:
-  workflow_dispatch: {}   # 手動觸發
+  workflow_dispatch: {}
   push:
-    branches: [ master ]    # 也可在 push 時自動跑
+    branches: [ master ]
 
 jobs:
   build:
@@ -11,27 +11,24 @@ jobs:
       BUILD_TYPE: Release
 
     steps:
-      - name: Checkout (with submodules)
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           submodules: recursive
           fetch-depth: 0
 
-      - name: Setup MSVC
-        uses: ilammy/msvc-dev-cmd@v1
+      - uses: ilammy/msvc-dev-cmd@v1
         with:
           toolset: 14.3
 
-      - name: Install Qt
-        uses: jurplel/install-qt-action@v4
+      - uses: jurplel/install-qt-action@v4
         with:
           version: '6.7.*'
           host: 'windows'
           arch: 'win64_msvc2022_64'
           cache: true
 
-      - name: Get CMake + Ninja
-        uses: lukka/get-cmake@v3
+      - name: Install Ninja via choco
+        run: choco install ninja --no-progress -y
 
       - name: Configure
         shell: pwsh
@@ -51,27 +48,16 @@ jobs:
                  Where-Object { $_.FullName -match "input-leap\.exe$" -or $_.Name -match "input" } |
                  Select-Object -First 1
           if (-not $exe) { throw "No EXE found under build/" }
-          echo "exe=$($exe.FullName)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "exe=$($exe.FullName)" >> $env:GITHUB_OUTPUT
           Write-Host "EXE => $($exe.FullName)"
 
       - name: Deploy Qt runtime (windeployqt)
         shell: pwsh
         run: |
-          $exe = "${{ steps.findexe.outputs.exe }}"
-          & "$env:IQTA_TOOLS\bin\windeployqt.exe" "$exe" --release --compiler-runtime
-          # 把相關 DLL/plug-ins 都會佈到 exe 同層或 plugins/ 等
-
-      - name: Collect artifact
-        shell: pwsh
-        run: |
-          $exeDir = Split-Path "${{ steps.findexe.outputs.exe }}"
-          New-Item -ItemType Directory -Force -Path dist | Out-Null
-          Copy-Item -Recurse -Force "$exeDir\*" dist\
-          # 可選：加入你自己的資源/設定檔
-          # Copy-Item -Recurse -Force "configs\*" dist\configs\
+          & "$env:IQTA_TOOLS\bin\windeployqt.exe" "${{ steps.findexe.outputs.exe }}" --release --compiler-runtime
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: input-leap-windows
-          path: dist\
+          path: build\
