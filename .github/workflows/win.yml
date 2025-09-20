@@ -2,7 +2,7 @@ name: win-build
 on:
   workflow_dispatch: {}   # 手動觸發
   push:
-    branches: [ main ]    # 也可在 push 時自動跑
+    branches: [ master ]    # 也可在 push 時自動跑
 
 jobs:
   build:
