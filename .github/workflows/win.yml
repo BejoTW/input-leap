@@ -11,24 +11,30 @@ jobs:
       BUILD_TYPE: Release
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout (with submodules)
+        uses: actions/checkout@v4
         with:
           submodules: recursive
           fetch-depth: 0
 
-      - uses: ilammy/msvc-dev-cmd@v1
+      - name: Setup MSVC (VS2022)
+        uses: ilammy/msvc-dev-cmd@v1
         with:
           toolset: 14.3
 
-      - uses: jurplel/install-qt-action@v4
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
         with:
           version: '6.7.*'
           host: 'windows'
           arch: 'win64_msvc2022_64'
           cache: true
 
-      - name: Install Ninja via choco
-        run: choco install ninja --no-progress -y
+      - name: Setup CMake
+        uses: jwlawson/actions-setup-cmake@v2
+
+      - name: Setup Ninja
+        uses: seanmiddleditch/gha-setup-ninja@v4
 
       - name: Configure
         shell: pwsh
@@ -56,8 +62,15 @@ jobs:
         run: |
           & "$env:IQTA_TOOLS\bin\windeployqt.exe" "${{ steps.findexe.outputs.exe }}" --release --compiler-runtime
 
+      - name: Collect artifact
+        shell: pwsh
+        run: |
+          $exeDir = Split-Path "${{ steps.findexe.outputs.exe }}"
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Copy-Item -Recurse -Force "$exeDir\*" dist\
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: input-leap-windows
-          path: build\
+          path: dist\
