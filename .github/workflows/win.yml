@@ -17,10 +17,11 @@ jobs:
           submodules: recursive
           fetch-depth: 0
 
-      - name: Setup MSVC (VS2022)
+      # ✅ 只指定 x64；不要再指定 toolset 版本，避免「版本找不到」而秒掛
+      - name: Setup MSVC (auto toolset)
         uses: ilammy/msvc-dev-cmd@v1
         with:
-          toolset: 14.3
+          arch: x64
 
       - name: Install Qt
         uses: jurplel/install-qt-action@v4
