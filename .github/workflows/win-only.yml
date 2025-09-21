@@ -2,7 +2,8 @@ name: win-only
 on:
   workflow_dispatch:
   push:
-    branches: [ master ]
+    branches:
+      - master
 
 jobs:
   win:
@@ -11,7 +12,7 @@ jobs:
       BUILD_TYPE: Release
 
     steps:
-      - name: Checkout (with submodules)
+      - name: Checkout with submodules
         uses: actions/checkout@v4
         with:
           submodules: recursive
@@ -22,24 +23,23 @@ jobs:
         with:
           arch: x64
 
-      # --- Qt 下載（鎖 aqt 與 Qt 版本） + 偵錯 ---
       - name: Setup Python 3.11
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      - name: Install aqtinstall (pinned)
+      - name: Install aqtinstall 3.2.2
         run: |
           python -m pip install --upgrade pip
           python -m pip install aqtinstall==3.2.2
 
-      - name: Debug: list available Qt (6.7.2)
+      - name: List available Qt 6.7.2
         shell: pwsh
         run: |
           python -m aqt --version
           python -m aqt list-qt windows desktop 6.7.2 --arch win64_msvc2022_64
 
-      - name: Install Qt 6.7.2 (MSVC 2022 x64)
+      - name: Install Qt 6.7.2 MSVC 2022 x64
         shell: pwsh
         run: |
           $out = "$env:RUNNER_TEMP\Qt"
@@ -48,28 +48,21 @@ jobs:
           echo "Qt6_DIR=$QtPath" >> $env:GITHUB_ENV
           echo "IQTA_TOOLS=$QtPath\bin" >> $env:GITHUB_ENV
           echo "PATH=$QtPath\bin;$env:PATH" >> $env:GITHUB_ENV
-          Get-ChildItem $QtPath | Format-List | Out-Host
 
-      # --- CMake + Ninja ---
       - name: Setup CMake
         uses: jwlawson/actions-setup-cmake@v2
 
       - name: Setup Ninja
         uses: seanmiddleditch/gha-setup-ninja@v4
 
-      # --- Configure（開啟詳細編譯輸出） ---
       - name: Configure
         shell: pwsh
-        run: >
-          cmake -S . -B build -G "Ninja"
-          -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }}
-          -DCMAKE_PREFIX_PATH="$env:Qt6_DIR"
-          -DCMAKE_VERBOSE_MAKEFILE=ON
+        run: |
+          cmake -S . -B build -G "Ninja" -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} -DCMAKE_PREFIX_PATH="$env:Qt6_DIR" -DCMAKE_VERBOSE_MAKEFILE=ON
 
       - name: Build
         run: cmake --build build --parallel --verbose
 
-      # --- 找 EXE（抓到第一個 .exe；之後 windeployqt 會針對它） ---
       - name: Find built EXE
         id: findexe
         shell: pwsh
@@ -79,13 +72,13 @@ jobs:
           "exe=$($exe.FullName)" >> $env:GITHUB_OUTPUT
           Write-Host "EXE => $($exe.FullName)"
 
-      - name: Deploy Qt runtime (windeployqt)
+      - name: Deploy Qt runtime
         shell: pwsh
         run: |
           & "$env:IQTA_TOOLS\windeployqt.exe" "${{ steps.findexe.outputs.exe }}" --release --compiler-runtime
           if ($LASTEXITCODE -ne 0) { throw "windeployqt failed with code $LASTEXITCODE" }
 
-      - name: Package (zip)
+      - name: Package zip
         shell: pwsh
         run: |
           $out = "dist"
