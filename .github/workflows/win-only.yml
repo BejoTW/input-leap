@@ -23,7 +23,7 @@ jobs:
         with:
           arch: x64
 
-      # Install Qt (no modules to avoid metadata failure)
+      # Qt 先不指定 modules，避免鏡像 metadata 抽風導致整個步驟失敗
       - name: Install Qt 6.6.3 (no modules)
         uses: jurplel/install-qt-action@v4
         with:
@@ -33,32 +33,42 @@ jobs:
           aqtversion: '==3.2.1'
           cache: true
 
-      # List actual modules available for this version/arch (debug only)
-      - name: Probe available modules
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-      - name: aqt list (modules for 6.6.3/win64_msvc2019_64)
-        run: |
-          python -m pip install aqtinstall==3.2.1
-          echo "=== aqt version ==="
-          python -m aqt version
-          echo "=== modules available for 6.6.3 win64_msvc2019_64 ==="
-          python -m aqt list-qt windows desktop --modules 6.6.3 win64_msvc2019_64
-
       - name: Setup CMake
         uses: jwlawson/actions-setup-cmake@v2
-
       - name: Setup Ninja
         uses: seanmiddleditch/gha-setup-ninja@v4
 
-      - name: Configure (verbose)
+      # 先清掉殘留的 build，再強制用 Ninja 重新 Configure
+      - name: Clean build dir
         shell: pwsh
+        run: Remove-Item -Recurse -Force build -ErrorAction SilentlyContinue
+
+      - name: Configure (force Ninja + verify)
+        shell: pwsh
+        env:
+          CMAKE_GENERATOR: Ninja
         run: |
+          # 強制 Ninja 並顯示版本
+          ninja --version
+          cmake --version
+
+          # 重新產生
           cmake -S . -B build -G "Ninja" `
             -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} `
             -DCMAKE_PREFIX_PATH="$env:Qt6_DIR" `
             -DCMAKE_VERBOSE_MAKEFILE=ON
+
+          Write-Host "---- build dir listing after configure ----"
+          Get-ChildItem build -Force | Select Name,Length,Mode | Format-Table | Out-Host
+
+          # 沒有 build.ninja 就直接丟錯（避免到下一步才炸）
+          if (!(Test-Path build/build.ninja)) {
+            Write-Host "CMAKE_GENERATOR cache:"
+            Select-String -Path build/CMakeCache.txt -Pattern "CMAKE_GENERATOR" | ForEach-Object { $_.Line } | Out-Host
+            Write-Error "CMake did not generate build.ninja (generator 不是 Ninja 或 Configure 失敗)。"
+          }
+
+          # 額外列出 Cache（幫助除錯）
           cmake -LAH -N build | Out-Host
 
       - name: Build (verbose)
@@ -76,7 +86,6 @@ jobs:
           "exe=$($exe.FullName)" >> $env:GITHUB_OUTPUT
           Write-Host "EXE => $($exe.FullName)"
 
-      # Try windeployqt if present; otherwise skip without failing
       - name: Deploy Qt runtime (windeployqt if available)
         shell: pwsh
         continue-on-error: true
