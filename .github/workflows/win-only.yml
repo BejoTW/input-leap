@@ -85,8 +85,8 @@ jobs:
 
           # 自動偵測 lib 檔名（vcpkg 可能提供 dnssd.lib 或 dns_sd.lib）
           $candidates = @(
-            Join-Path $libDir "dns_sd.lib",
-            Join-Path $libDir "dnssd.lib"
+            (Join-Path $libDir "dns_sd.lib"),
+            (Join-Path $libDir "dnssd.lib")
           )
           $dnssdLib = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
 
@@ -98,6 +98,8 @@ jobs:
 
           Write-Host "Using DNSSD lib => $dnssdLib"
 
+          $dnssdRoot = Join-Path $vcpkgRoot "installed\$triplet"
+
           cmake -S . -B build -G "Ninja" `
             -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} `
             -DCMAKE_PREFIX_PATH="$env:Qt6_DIR" `
@@ -106,7 +108,7 @@ jobs:
             -DDNSSD_INCLUDE_DIR="$incDir" `
             -DDNSSD_LIB="$dnssdLib" `
             -DDNSSD_LIBRARY="$dnssdLib" `
-            -DDNSSD_ROOT_DIR=(Join-Path $vcpkgRoot "installed\$triplet") `
+            -DDNSSD_ROOT_DIR="$dnssdRoot" `
             -DCMAKE_VERBOSE_MAKEFILE=ON
 
           if (!(Test-Path build/build.ninja)) {
