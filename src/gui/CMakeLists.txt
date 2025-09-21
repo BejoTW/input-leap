@@ -206,12 +206,44 @@ target_compile_definitions (input-leap PRIVATE -DINPUTLEAP_VERSION_STAGE="${INPU
 target_compile_definitions (input-leap PRIVATE -DINPUTLEAP_REVISION="${INPUTLEAP_REVISION}")
 
 if (BUILD_MSWINDOWS)
-    include_directories ($ENV{BONJOUR_SDK_HOME}/Include)
-    find_library (DNSSD_LIB dnssd.lib
-                  HINTS ENV BONJOUR_SDK_HOME
-                  PATH_SUFFIXES "Lib/x64")
+    set(_dnssd_include "")
+    set(_dnssd_lib "")
+    set(_dnssd_root "")
+
+    if (DNSSD_INCLUDE_DIR AND DNSSD_LIB)
+        set(_dnssd_include "${DNSSD_INCLUDE_DIR}")
+        set(_dnssd_lib "${DNSSD_LIB}")
+    elseif((DEFINED BONJOUR_SDK_HOME AND NOT BONJOUR_SDK_HOME STREQUAL "")
+            OR (DEFINED ENV{BONJOUR_SDK_HOME} AND NOT "$ENV{BONJOUR_SDK_HOME}" STREQUAL ""))
+        if (DEFINED BONJOUR_SDK_HOME AND NOT BONJOUR_SDK_HOME STREQUAL "")
+            set(_dnssd_root "${BONJOUR_SDK_HOME}")
+        else()
+            set(_dnssd_root "$ENV{BONJOUR_SDK_HOME}")
+        endif()
+        if (EXISTS "${_dnssd_root}/include")
+            set(_dnssd_include "${_dnssd_root}/include")
+        else()
+            set(_dnssd_include "${_dnssd_root}/Include")
+        endif()
+        set(_saved_library_suffixes "${CMAKE_FIND_LIBRARY_SUFFIXES}")
+        list(APPEND CMAKE_FIND_LIBRARY_SUFFIXES ".lib")
+        list(REMOVE_DUPLICATES CMAKE_FIND_LIBRARY_SUFFIXES)
+        find_library (DNSSD_LIB
+                      NAMES dnssd dns_sd dnssd.lib dns_sd.lib
+                      HINTS "${_dnssd_root}"
+                      PATHS "${_dnssd_root}"
+                      PATH_SUFFIXES "Lib/x64" "lib")
+        set(CMAKE_FIND_LIBRARY_SUFFIXES "${_saved_library_suffixes}")
+        set(_dnssd_lib "${DNSSD_LIB}")
+    endif()
+
+    if (NOT _dnssd_include OR NOT _dnssd_lib)
+        message(FATAL_ERROR "Could not locate DNSSD. Please set DNSSD_INCLUDE_DIR/DNSSD_LIB or BONJOUR_SDK_HOME.")
+    endif()
+
+    target_include_directories(input-leap PRIVATE "${_dnssd_include}")
     set_target_properties (input-leap PROPERTIES LINK_FLAGS "/NODEFAULTLIB:LIBCMT")
-    target_link_libraries (input-leap ${DNSSD_LIB})
+    target_link_libraries (input-leap "${_dnssd_lib}")
 endif()
 if (BUILD_CARBON)
     find_library(APPSERVICES_LIB ApplicationServices)
