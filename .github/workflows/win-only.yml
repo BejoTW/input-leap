@@ -23,20 +23,7 @@ jobs:
         with:
           arch: x64
 
-      # 可選：先列出該版本可用的架構與模組，方便除錯
-      - name: List Qt 6.7.2 arch/modules
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-      - name: aqt list
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install aqtinstall==3.2.1
-          python -m aqt list-qt windows desktop 6.7.2
-          python -m aqt list-qt windows desktop 6.7.2 --arch win64_msvc2019_64
-          python -m aqt list-modules windows desktop 6.7.2 win64_msvc2019_64
-
-      # 這裡是重點：arch 用 win64_msvc2019_64；modules 用「空白分隔」
+      # Install Qt: pin Qt 6.7.2 + aqt 3.2.1；注意 arch 與 modules 寫法
       - name: Install Qt 6.7.2 (MSVC x64, pinned aqt)
         uses: jurplel/install-qt-action@v4
         with:
@@ -47,18 +34,9 @@ jobs:
           modules: 'qttools qtdeclarative qtquickcontrols2 qtsvg qtshadertools'
           cache: true
 
-      - name: Debug Qt env
-        shell: pwsh
-        run: |
-          echo "Qt6_DIR=$env:Qt6_DIR"
-          if (Test-Path "$env:Qt6_DIR\bin\windeployqt.exe") {
-            & "$env:Qt6_DIR\bin\windeployqt.exe" -version
-          } else {
-            Write-Error "windeployqt.exe not found under $env:Qt6_DIR\bin"
-          }
-
       - name: Setup CMake
         uses: jwlawson/actions-setup-cmake@v2
+
       - name: Setup Ninja
         uses: seanmiddleditch/gha-setup-ninja@v4
 
@@ -69,7 +47,6 @@ jobs:
             -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} `
             -DCMAKE_PREFIX_PATH="$env:Qt6_DIR" `
             -DCMAKE_VERBOSE_MAKEFILE=ON
-          cmake -LAH -N build | Out-Host
 
       - name: Build (verbose)
         run: cmake --build build --parallel --verbose
