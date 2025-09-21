@@ -23,18 +23,27 @@ jobs:
         with:
           arch: x64
 
-      # Qt: pin to a known good combo (Qt 6.7.2 + aqt 3.2.x)
+      # --- Debug: list aqt versions on PyPI ---
+      - name: List aqtinstall versions
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: pip index (aqtinstall)
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip index versions aqtinstall
+
+      # --- Install Qt: pin Qt 6.7.2 + aqt 3.2.1 ---
       - name: Install Qt 6.7.2 (MSVC 2022 x64, pinned aqt)
         uses: jurplel/install-qt-action@v4
         with:
           version: '6.7.2'
           host: 'windows'
           arch: 'win64_msvc2022_64'
-          aqtversion: '==3.2.2'
+          aqtversion: '==3.2.1'
           modules: 'qttools;qtdeclarative;qtquickcontrols2;qtsvg;qtshadertools'
           cache: true
 
-      # Debug Qt env to confirm paths/tools
       - name: Debug Qt env
         shell: pwsh
         run: |
