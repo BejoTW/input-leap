@@ -1,4 +1,5 @@
 name: win-only
+
 on:
   workflow_dispatch:
   push:
@@ -22,12 +23,13 @@ jobs:
         with:
           arch: x64
 
-      # （可留可不留）先列模組，方便你之後要精準加 Qt 模組
+      # （僅做偵測，失敗不影響後續）
       - name: Probe available Qt modules (6.6.3)
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
       - name: aqt list modules
+        continue-on-error: true
         run: |
           python -m pip install -q aqtinstall==3.2.1
           python -m aqt list-qt windows desktop --modules 6.6.3 win64_msvc2019_64
@@ -42,16 +44,24 @@ jobs:
           archives: 'qtbase qtdeclarative qtquickcontrols2 qtsvg qttools qtshadertools'
           cache: true
 
-      # ⭐ 安裝 Bonjour/mDNSResponder（會提供 dns_sd.h / dns_sd.lib）
+      # ⭐ 安裝 Bonjour/mDNSResponder（提供 dns_sd.h 與對應的 .lib）
       - name: Install mDNSResponder via vcpkg
         shell: pwsh
         run: |
-          & "C:\vcpkg\vcpkg.exe" version
-          & "C:\vcpkg\vcpkg.exe" install mdnsresponder:x64-windows
+          $vcpkg = "C:\vcpkg\vcpkg.exe"
+          if (!(Test-Path $vcpkg)) { $vcpkg = "vcpkg" }  # 後備：PATH 裡的 vcpkg
+          & $vcpkg version
+          & $vcpkg install mdnsresponder:x64-windows --clean-after-build
           if ($LASTEXITCODE -ne 0) { throw "vcpkg install mdnsresponder failed" }
+
+          Write-Host "== includes =="
+          Get-ChildItem -Name C:\vcpkg\installed\x64-windows\include | Out-Host
+          Write-Host "== libs =="
+          Get-ChildItem -Name C:\vcpkg\installed\x64-windows\lib | Out-Host
 
       - name: Setup CMake
         uses: jwlawson/actions-setup-cmake@v2
+
       - name: Setup Ninja
         uses: seanmiddleditch/gha-setup-ninja@v4
 
@@ -69,25 +79,39 @@ jobs:
 
           $triplet    = "x64-windows"
           $vcpkgRoot  = "C:\vcpkg"
-          $dnssdInc   = Join-Path $vcpkgRoot "installed\$triplet\include"
-          $dnssdLib   = Join-Path $vcpkgRoot "installed\$triplet\lib\dns_sd.lib"
+          $incDir     = Join-Path $vcpkgRoot "installed\$triplet\include"
+          $libDir     = Join-Path $vcpkgRoot "installed\$triplet\lib"
           $toolchain  = Join-Path $vcpkgRoot "scripts\buildsystems\vcpkg.cmake"
 
-          if (!(Test-Path $dnssdInc) -or !(Test-Path $dnssdLib)) {
-            throw "dns_sd not found. Expected:`n  $dnssdInc`n  $dnssdLib"
+          # 自動偵測 lib 檔名（vcpkg 可能提供 dnssd.lib 或 dns_sd.lib）
+          $candidates = @(
+            Join-Path $libDir "dns_sd.lib",
+            Join-Path $libDir "dnssd.lib"
+          )
+          $dnssdLib = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+
+          if (!(Test-Path $incDir) -or -not $dnssdLib) {
+            Write-Host "incDir: $incDir"
+            Write-Host "Tried libs:" ($candidates -join ", ")
+            throw "dns_sd/dnssd not found under $libDir"
           }
+
+          Write-Host "Using DNSSD lib => $dnssdLib"
 
           cmake -S . -B build -G "Ninja" `
             -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} `
             -DCMAKE_PREFIX_PATH="$env:Qt6_DIR" `
             -DCMAKE_TOOLCHAIN_FILE="$toolchain" `
             -DVCPKG_TARGET_TRIPLET=$triplet `
-            -DDNSSD_INCLUDE_DIR="$dnssdInc" `
+            -DDNSSD_INCLUDE_DIR="$incDir" `
             -DDNSSD_LIB="$dnssdLib" `
+            -DDNSSD_LIBRARY="$dnssdLib" `
             -DDNSSD_ROOT_DIR=(Join-Path $vcpkgRoot "installed\$triplet") `
             -DCMAKE_VERBOSE_MAKEFILE=ON
 
-          if (!(Test-Path build/build.ninja)) { throw "CMake did not generate build.ninja" }
+          if (!(Test-Path build/build.ninja)) {
+            throw "CMake did not generate build.ninja"
+          }
 
       - name: Build (verbose)
         run: cmake --build build --parallel --verbose
