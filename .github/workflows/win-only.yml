@@ -23,31 +23,28 @@ jobs:
         with:
           arch: x64
 
-      - name: Setup Python 3.11
-        uses: actions/setup-python@v5
+      # Qt: pin to a known good combo (Qt 6.7.2 + aqt 3.2.x)
+      - name: Install Qt 6.7.2 (MSVC 2022 x64, pinned aqt)
+        uses: jurplel/install-qt-action@v4
         with:
-          python-version: '3.11'
+          version: '6.7.2'
+          host: 'windows'
+          arch: 'win64_msvc2022_64'
+          aqtversion: '==3.2.2'
+          modules: 'qttools;qtdeclarative;qtquickcontrols2;qtsvg;qtshadertools'
+          cache: true
 
-      - name: Install aqtinstall 3.2.2
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install aqtinstall==3.2.2
-
-      - name: List available Qt 6.7.2
+      # Debug Qt env to confirm paths/tools
+      - name: Debug Qt env
         shell: pwsh
         run: |
-          python -m aqt --version
-          python -m aqt list-qt windows desktop 6.7.2 --arch win64_msvc2022_64
-
-      - name: Install Qt 6.7.2 MSVC 2022 x64
-        shell: pwsh
-        run: |
-          $out = "$env:RUNNER_TEMP\Qt"
-          python -m aqt install-qt windows desktop 6.7.2 win64_msvc2022_64 -O $out --modules qttools qtdeclarative qtquickcontrols2 qtsvg qtshadertools
-          $QtPath = "$out\6.7.2\msvc2022_64"
-          echo "Qt6_DIR=$QtPath" >> $env:GITHUB_ENV
-          echo "IQTA_TOOLS=$QtPath\bin" >> $env:GITHUB_ENV
-          echo "PATH=$QtPath\bin;$env:PATH" >> $env:GITHUB_ENV
+          echo "Qt6_DIR=$env:Qt6_DIR"
+          if (Test-Path "$env:Qt6_DIR\bin\windeployqt.exe") {
+            & "$env:Qt6_DIR\bin\windeployqt.exe" -version
+          } else {
+            Write-Error "windeployqt.exe not found under $env:Qt6_DIR\bin"
+          }
+          Get-ChildItem "$env:Qt6_DIR" | Select-Object -First 40 | Format-List | Out-Host
 
       - name: Setup CMake
         uses: jwlawson/actions-setup-cmake@v2
@@ -55,12 +52,16 @@ jobs:
       - name: Setup Ninja
         uses: seanmiddleditch/gha-setup-ninja@v4
 
-      - name: Configure
+      - name: Configure (verbose)
         shell: pwsh
         run: |
-          cmake -S . -B build -G "Ninja" -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} -DCMAKE_PREFIX_PATH="$env:Qt6_DIR" -DCMAKE_VERBOSE_MAKEFILE=ON
+          cmake -S . -B build -G "Ninja" `
+            -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} `
+            -DCMAKE_PREFIX_PATH="$env:Qt6_DIR" `
+            -DCMAKE_VERBOSE_MAKEFILE=ON
+          cmake -LAH -N build | Out-Host
 
-      - name: Build
+      - name: Build (verbose)
         run: cmake --build build --parallel --verbose
 
       - name: Find built EXE
@@ -68,14 +69,17 @@ jobs:
         shell: pwsh
         run: |
           $exe = Get-ChildItem -Recurse -Path build -Filter "*.exe" | Select-Object -First 1
-          if (-not $exe) { Get-ChildItem -Recurse build | Select-Object -First 200 | Format-Table | Out-Host; throw "No EXE found under build/" }
+          if (-not $exe) {
+            Get-ChildItem -Recurse build | Select-Object -First 200 | Format-Table | Out-Host
+            throw "No EXE found under build/"
+          }
           "exe=$($exe.FullName)" >> $env:GITHUB_OUTPUT
           Write-Host "EXE => $($exe.FullName)"
 
-      - name: Deploy Qt runtime
+      - name: Deploy Qt runtime (windeployqt)
         shell: pwsh
         run: |
-          & "$env:IQTA_TOOLS\windeployqt.exe" "${{ steps.findexe.outputs.exe }}" --release --compiler-runtime
+          & "$env:Qt6_DIR\bin\windeployqt.exe" "${{ steps.findexe.outputs.exe }}" --release --compiler-runtime
           if ($LASTEXITCODE -ne 0) { throw "windeployqt failed with code $LASTEXITCODE" }
 
       - name: Package zip
