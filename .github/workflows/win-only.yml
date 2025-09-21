@@ -60,6 +60,13 @@ jobs:
           "exe=$($exe.FullName)" >> $env:GITHUB_OUTPUT
           Write-Host "EXE => $($exe.FullName)"
 
+      - name: Debug: list available Qt (6.7.x)
+        shell: pwsh
+        run: |
+          python -m pip install aqtinstall==3.2.0
+          python -m aqt list-qt windows desktop 6.7.3
+          python -m aqt list-qt windows desktop 6.7.2
+
       - name: Deploy Qt runtime (windeployqt)
         shell: pwsh
         run: |
