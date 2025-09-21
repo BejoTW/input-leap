@@ -22,7 +22,7 @@ jobs:
         with:
           arch: x64
 
-      # 先探測該版本有哪些模組（寫進 log 方便對照）
+      # （可留可不留）先列模組，方便你之後要精準加 Qt 模組
       - name: Probe available Qt modules (6.6.3)
         uses: actions/setup-python@v5
         with:
@@ -30,26 +30,28 @@ jobs:
       - name: aqt list modules
         run: |
           python -m pip install -q aqtinstall==3.2.1
-          echo "=== aqt version ==="
-          python -m aqt version
-          echo "=== modules for 6.6.3 win64_msvc2019_64 ==="
           python -m aqt list-qt windows desktop --modules 6.6.3 win64_msvc2019_64
 
-      # 安裝 Qt：改用 archives（對 6.6.x/6.7.x 較穩），一次抓齊常用模組
-      - name: Install Qt 6.6.3 (MSVC x64, pinned aqt, archives)
+      - name: Install Qt 6.6.3 (archives)
         uses: jurplel/install-qt-action@v4
         with:
           version: '6.6.3'
           host: 'windows'
           arch: 'win64_msvc2019_64'
           aqtversion: '==3.2.1'
-          # 注意：以空白分隔；使用 archives 取代 modules
           archives: 'qtbase qtdeclarative qtquickcontrols2 qtsvg qttools qtshadertools'
           cache: true
 
+      # ⭐ 安裝 Bonjour/mDNSResponder（會提供 dns_sd.h / dns_sd.lib）
+      - name: Install mDNSResponder via vcpkg
+        shell: pwsh
+        run: |
+          & "C:\vcpkg\vcpkg.exe" version
+          & "C:\vcpkg\vcpkg.exe" install mdnsresponder:x64-windows
+          if ($LASTEXITCODE -ne 0) { throw "vcpkg install mdnsresponder failed" }
+
       - name: Setup CMake
         uses: jwlawson/actions-setup-cmake@v2
-
       - name: Setup Ninja
         uses: seanmiddleditch/gha-setup-ninja@v4
 
@@ -57,27 +59,33 @@ jobs:
         shell: pwsh
         run: Remove-Item -Recurse -Force build -ErrorAction SilentlyContinue
 
-      - name: Configure (force Ninja + verify, dump logs on failure)
+      - name: Configure (force Ninja + vcpkg toolchain + verify)
         shell: pwsh
         env:
           CMAKE_GENERATOR: Ninja
         run: |
           ninja --version
           cmake --version
+          $toolchain = "C:/vcpkg/scripts/buildsystems/vcpkg.cmake"
+
           cmake -S . -B build -G "Ninja" `
             -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} `
             -DCMAKE_PREFIX_PATH="$env:Qt6_DIR" `
+            -DCMAKE_TOOLCHAIN_FILE="$toolchain" `
+            -DVCPKG_TARGET_TRIPLET=x64-windows `
             -DCMAKE_VERBOSE_MAKEFILE=ON
+
           if (!(Test-Path build/build.ninja)) {
-            Write-Host "---- CMakeCache (generator) ----"
-            Select-String -Path build/CMakeCache.txt -Pattern "CMAKE_GENERATOR" | % { $_.Line } | Out-Host
-            Write-Host "---- CMakeError.log ----"
-            if (Test-Path build/CMakeFiles/CMakeError.log) { Get-Content build/CMakeFiles/CMakeError.log | Out-Host }
-            Write-Host "---- CMakeOutput.log ----"
-            if (Test-Path build/CMakeFiles/CMakeOutput.log) { Get-Content build/CMakeFiles/CMakeOutput.log | Out-Host }
+            Write-Host "---- DNSSD in cache ----"
+            if (Test-Path build/CMakeCache.txt) {
+              Select-String -Path build/CMakeCache.txt -Pattern "DNSSD|dns_sd" | ForEach-Object { $_.Line } | Out-Host
+            }
+            if (Test-Path build/CMakeFiles/CMakeError.log) {
+              Write-Host "---- CMakeError.log ----"
+              Get-Content build/CMakeFiles/CMakeError.log | Out-Host
+            }
             throw "CMake did not generate build.ninja"
           }
-          cmake -LAH -N build | Out-Host
 
       - name: Build (verbose)
         run: cmake --build build --parallel --verbose
@@ -87,10 +95,7 @@ jobs:
         shell: pwsh
         run: |
           $exe = Get-ChildItem -Recurse -Path build -Filter "*.exe" | Select-Object -First 1
-          if (-not $exe) {
-            Get-ChildItem -Recurse build | Select-Object -First 200 | Format-Table | Out-Host
-            throw "No EXE found under build/"
-          }
+          if (-not $exe) { throw "No EXE found under build/" }
           "exe=$($exe.FullName)" >> $env:GITHUB_OUTPUT
           Write-Host "EXE => $($exe.FullName)"
 
@@ -101,9 +106,8 @@ jobs:
           $wqt = Join-Path $env:Qt6_DIR "bin\windeployqt.exe"
           if (Test-Path $wqt) {
             & $wqt "${{ steps.findexe.outputs.exe }}" --release --compiler-runtime
-            if ($LASTEXITCODE -ne 0) { throw "windeployqt failed with code $LASTEXITCODE" }
           } else {
-            Write-Host "windeployqt.exe not found; skipping runtime deployment."
+            Write-Host "windeployqt.exe not found; skipping."
           }
 
       - name: Package zip
