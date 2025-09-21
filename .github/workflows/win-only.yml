@@ -1,6 +1,6 @@
 name: win-only
 on:
-  workflow_dispatch: {}
+  workflow_dispatch:
   push:
     branches: [ master ]
 
@@ -22,41 +22,42 @@ jobs:
         with:
           arch: x64
 
-      # ---- Qt 下載：固定 aqt 與 Qt 版本，並加大量偵錯輸出 ----
+      # --- Qt 下載（鎖 aqt 與 Qt 版本） + 偵錯 ---
       - name: Setup Python 3.11
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
       - name: Install aqtinstall (pinned)
-        run: python -m pip install --upgrade pip && python -m pip install aqtinstall==3.2.2
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install aqtinstall==3.2.2
 
       - name: Debug: list available Qt (6.7.2)
         shell: pwsh
         run: |
           python -m aqt --version
-          python -m aqt list-qt windows desktop 6.7.2
           python -m aqt list-qt windows desktop 6.7.2 --arch win64_msvc2022_64
 
-      - name: Install Qt 6.7.2 (MSVC 2022 x64) with modules
+      - name: Install Qt 6.7.2 (MSVC 2022 x64)
         shell: pwsh
         run: |
           $out = "$env:RUNNER_TEMP\Qt"
-          python -m aqt install-qt windows desktop 6.7.2 win64_msvc2022_64 -O "$out" `
-            --modules qttools qtdeclarative qtquickcontrols2 qtsvg qtshadertools
+          python -m aqt install-qt windows desktop 6.7.2 win64_msvc2022_64 -O $out --modules qttools qtdeclarative qtquickcontrols2 qtsvg qtshadertools
           $QtPath = "$out\6.7.2\msvc2022_64"
           echo "Qt6_DIR=$QtPath" >> $env:GITHUB_ENV
           echo "IQTA_TOOLS=$QtPath\bin" >> $env:GITHUB_ENV
           echo "PATH=$QtPath\bin;$env:PATH" >> $env:GITHUB_ENV
           Get-ChildItem $QtPath | Format-List | Out-Host
 
-      # ---- CMake + Ninja ----
+      # --- CMake + Ninja ---
       - name: Setup CMake
         uses: jwlawson/actions-setup-cmake@v2
+
       - name: Setup Ninja
         uses: seanmiddleditch/gha-setup-ninja@v4
 
-      # ---- Configure（含更多 debug 開關）----
+      # --- Configure（開啟詳細編譯輸出） ---
       - name: Configure
         shell: pwsh
         run: >
@@ -65,30 +66,25 @@ jobs:
           -DCMAKE_PREFIX_PATH="$env:Qt6_DIR"
           -DCMAKE_VERBOSE_MAKEFILE=ON
 
-      # ---- Build（加 --verbose 顯示實際編譯命令）----
       - name: Build
         run: cmake --build build --parallel --verbose
 
-      # ---- 找出 EXE（若專案輸出名不同也能抓到第一個 .exe）----
+      # --- 找 EXE（抓到第一個 .exe；之後 windeployqt 會針對它） ---
       - name: Find built EXE
         id: findexe
         shell: pwsh
         run: |
-          $exe = Get-ChildItem -Recurse -Path build -Filter "*.exe" |
-                 Where-Object { $_.FullName -match "input-leap\.exe$" -or $_.Name -match "input" } |
-                 Select-Object -First 1
+          $exe = Get-ChildItem -Recurse -Path build -Filter "*.exe" | Select-Object -First 1
           if (-not $exe) { Get-ChildItem -Recurse build | Select-Object -First 200 | Format-Table | Out-Host; throw "No EXE found under build/" }
           "exe=$($exe.FullName)" >> $env:GITHUB_OUTPUT
           Write-Host "EXE => $($exe.FullName)"
 
-      # ---- 以我們自己安裝的 Qt 來跑 windeployqt ----
       - name: Deploy Qt runtime (windeployqt)
         shell: pwsh
         run: |
           & "$env:IQTA_TOOLS\windeployqt.exe" "${{ steps.findexe.outputs.exe }}" --release --compiler-runtime
           if ($LASTEXITCODE -ne 0) { throw "windeployqt failed with code $LASTEXITCODE" }
 
-      # ---- 打包成 zip ----
       - name: Package (zip)
         shell: pwsh
         run: |
