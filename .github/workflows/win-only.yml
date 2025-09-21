@@ -141,7 +141,8 @@ jobs:
         run: |
           $out = "dist"
           New-Item -ItemType Directory -Force -Path $out | Out-Null
-          Copy-Item -Recurse -Force (Split-Path "${{ steps.findexe.outputs.exe }}")"\*" $out\
+          $exeDir = Split-Path "${{ steps.findexe.outputs.exe }}"
+          Copy-Item -Recurse -Force -Path (Join-Path $exeDir '*') -Destination $out
           Compress-Archive -Path $out\* -DestinationPath input-leap-windows.zip
 
       - name: Upload artifact
