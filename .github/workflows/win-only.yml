@@ -23,11 +23,11 @@ jobs:
         with:
           arch: x64
 
-      # Install Qt: pin Qt 6.7.2 + aqt 3.2.1；注意 arch 與 modules 寫法
-      - name: Install Qt 6.7.2 (MSVC x64, pinned aqt)
+      # Qt LTS，最穩：6.6.3（注意 modules 空白分隔、arch 命名）
+      - name: Install Qt 6.6.3 (MSVC x64, pinned aqt)
         uses: jurplel/install-qt-action@v4
         with:
-          version: '6.7.2'
+          version: '6.6.3'
           host: 'windows'
           arch: 'win64_msvc2019_64'
           aqtversion: '==3.2.1'
@@ -36,7 +36,6 @@ jobs:
 
       - name: Setup CMake
         uses: jwlawson/actions-setup-cmake@v2
-
       - name: Setup Ninja
         uses: seanmiddleditch/gha-setup-ninja@v4
 
